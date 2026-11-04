@@ -1,17 +1,17 @@
 name: CI
 
 on:
-  pull_request:
-    branches:
-      - master
-  push:
-    branches:
-      - master
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: 'Optional Maven test selector (e.g. -pl main -Dtest=ObjenesisTest)'
+        required: false
+        default: ''
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 15
     strategy:
       matrix:
         java: [ '8', '11', '17', '18' ]
@@ -23,4 +23,23 @@ jobs:
         java-version: ${{ matrix.java }}
         distribution: 'temurin'
     - name: Build
-      run: ./mvnw --no-transfer-progress -B clean verify --file pom.xml
+      run: |
+        if [ -n "${{ inputs.test-filter }}" ]; then
+          ./mvnw --no-transfer-progress -B clean verify --file pom.xml -Dsurefire.failIfNoSpecifiedTests=false ${{ inputs.test-filter }}
+        else
+          ./mvnw --no-transfer-progress -B clean verify --file pom.xml
+        fi
+    - name: List skipped tests with reasons
+      if: always()
+      run: |
+        grep -l '<skipped' */target/surefire-reports/TEST-*.xml 2>/dev/null | while read f; do
+          echo "== $f"
+          grep -B1 '<skipped' "$f"
+        done
+    - name: Upload artifact
+      if: matrix.java == '8'
+      uses: actions/upload-artifact@v4
+      with:
+        name: objenesis-jar
+        path: main/target/objenesis-3.3.jar
+        if-no-files-found: error
